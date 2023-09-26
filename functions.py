@@ -103,7 +103,7 @@ def Fetch(pre_signals):
         IF_valP = IF_PC+1
         IF_valC = 0
         if(IF_icode == 0):
-            IF_stat = 2
+            resources.stat = 2
         return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC)
 
     rA_rB = Load_Memory(IF_PC+1, 1)
@@ -149,6 +149,9 @@ def Decode(pre_signals):
     if(IF_icode == 6):                             #OPq
         ID_valA = resources.reg[IF_rA]
         ID_valB = resources.reg[IF_rB]
+    elif(IF_icode == 0):                            # nop
+        ID_valA = 0
+        ID_valB = 0
     elif(IF_icode == 2):                           #rrmovq and cmovxx
         ID_valA = resources.reg[IF_rA]
         ID_valB = 0
@@ -191,6 +194,9 @@ def Execute(pre_signals):
         EX_valE = eval( str(ID_valB) + op + str(ID_valA) )
         set_CC(EX_valE)
         EX_Cnd = 0
+    elif(ID_icode == 0):                           # nop
+        EX_valE = 0
+        EX_Cnd = 0
     elif(ID_icode == 2):                           #rrmovq and cmovxx
         EX_valE = 0 + ID_valA
         EX_Cnd = Cond(ID_ifun)
@@ -229,6 +235,8 @@ def Memory(pre_signals):
     (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA) = pre_signals
     if(EX_icode == 6):                             #OPq
         MEM_valM = 0
+    elif(EX_icode == 0):                           # nop
+        MEM_valM = 0
     elif(EX_icode == 2):                           #rrmovq and cmovxx
         MEM_valM = 0
     elif(EX_icode == 3 and EX_ifun == 0):             #irmovq
@@ -259,6 +267,8 @@ def WriteBack(pre_signals):
     (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA) = pre_signals
     if(MEM_icode == 6):                             #OPq
         resources.reg[MEM_rB] = MEM_valE
+    elif(MEM_icode == 0):                           # nop
+        pass
     elif(MEM_icode == 2):                           #rrmovq and cmovxx
         if(MEM_Cnd == 1):
             resources.reg[MEM_rB] = MEM_valE
