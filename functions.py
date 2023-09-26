@@ -72,201 +72,217 @@ def Cond(ifun):
     elif(ifun == 6):
         return ~(resources.SF^resources.OF)&~resources.ZF
 
-def Fetch():
-    icode_ifun = Load_Memory(resources.PC, 1)
-    icode = hex_2_dec(icode_ifun[0])
-    ifun = hex_2_dec(icode_ifun[1])
+# 使用上一个周期的控制信号，计算本周期PC的值
+def Compute_Next_PC(pre_signals):
+    (pre_valP, pre_Cnd, pre_valC, pre_icode, pre_valM) = pre_signals
+    if(pre_icode == 7):                            #jxx
+        if(pre_Cnd == 1):
+            PC =  pre_valC
+        else:
+            PC = pre_valP
+    elif(pre_icode == 9):                           #ret
+        PC = pre_valM
+    else:
+        PC = pre_valP
+    return PC
 
-    #debug here
-    #print(icode_ifun, icode, ifun)
+# 上个周期的控制信号
+def Fetch(pre_signals):
+    # 首先计算PC
+    IF_PC = Compute_Next_PC(pre_signals)
+
+    icode_ifun = Load_Memory(IF_PC, 1)
+    IF_icode = hex_2_dec(icode_ifun[0])
+    IF_ifun = hex_2_dec(icode_ifun[1])
 
     #若为halt指令，直接返回
-    if(icode == 0 or icode == 1 ):                             #halt or nop
-        ifun = 0
-        rA = 0
-        rB = 0
-        valP = resources.PC+1
-        valC = 0
-        if(icode == 0):
-            resources.stat = 2
-        return icode, ifun, rA, rB, valP, valC
+    if(IF_icode == 0 or IF_icode == 1 ):                             #halt or nop
+        IF_ifun = 0
+        IF_rA = 0
+        IF_rB = 0
+        IF_valP = IF_PC+1
+        IF_valC = 0
+        if(IF_icode == 0):
+            IF_stat = 2
+        return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC)
 
-    rA_rB = Load_Memory(resources.PC+1, 1)
-    rA = hex_2_dec(rA_rB[0])
-    rB = hex_2_dec(rA_rB[1])    
-    if(icode == 6):                             #OPq
-        valP = resources.PC + 2
-        valC = 0
-    elif(icode == 2):                           #rrmovq and cmovxx
-        valP = resources.PC + 2
-        valC = 0
-    elif(icode == 3 and ifun == 0):             #irmovq
-        valC = hex_2_dec(Load_Memory(resources.PC+2, 8))
-        valP = resources.PC + 10
-    elif(icode == 4 and ifun == 0):             #rmmovq
-        valC = hex_2_dec(Load_Memory(resources.PC+2, 8))
-        valP = resources.PC + 10
-    elif(icode == 5 and ifun == 0):             #mrmovq
-        valC = hex_2_dec(Load_Memory(resources.PC+2, 8))  
-        valP = resources.PC + 10
-    elif(icode == 10 and ifun == 0):            #pushq
-        valP = resources.PC + 2
-        valC = 0
-    elif(icode == 11 and ifun == 0):            #popq
-        valP = resources.PC + 2
-        valC = 0
-    elif(icode == 7):                           #jxx
-        valP = resources.PC + 9
-        valC = hex_2_dec(Load_Memory(resources.PC + 1, 8))
-    elif(icode == 8):                           #call
-        valC = hex_2_dec(Load_Memory(resources.PC + 1, 8))
-        valP = resources.PC + 9
-    elif(icode == 9):                           #ret
-        valP = resources.PC + 1
-        valC = 0
-    return icode, ifun, rA, rB, valP, valC
+    rA_rB = Load_Memory(IF_PC+1, 1)
+    IF_rA = hex_2_dec(rA_rB[0])
+    IF_rB = hex_2_dec(rA_rB[1])    
+    if(IF_icode == 6):                             #OPq
+        IF_valP = IF_PC + 2
+        IF_valC = 0
+    elif(IF_icode == 2):                           #rrmovq and cmovxx
+        IF_valP = IF_PC + 2
+        IF_valC = 0
+    elif(IF_icode == 3 and IF_ifun == 0):             #irmovq
+        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))
+        IF_valP = IF_PC + 10
+    elif(IF_icode == 4 and IF_ifun == 0):             #rmmovq
+        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))
+        IF_valP = IF_PC + 10
+    elif(IF_icode == 5 and IF_ifun == 0):             #mrmovq
+        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))  
+        IF_valP = IF_PC + 10
+    elif(IF_icode == 10 and IF_ifun == 0):            #pushq
+        IF_valP = IF_PC + 2
+        IF_valC = 0
+    elif(IF_icode == 11 and IF_ifun == 0):            #popq
+        IF_valP = IF_PC + 2
+        IF_valC = 0
+    elif(IF_icode == 7):                           #jxx
+        IF_valP = IF_PC + 9
+        IF_valC = hex_2_dec(Load_Memory(IF_PC + 1, 8))
+    elif(IF_icode == 8):                           #call
+        IF_valC = hex_2_dec(Load_Memory(IF_PC + 1, 8))
+        IF_valP = IF_PC + 9
+    elif(IF_icode == 9):                           #ret
+        IF_valP = IF_PC + 1
+        IF_valC = 0
+    return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC)
 #返回值类型均为int
 
-def Decode(rA, rB, icode, ifun):
-    if(icode == 6):                             #OPq
-        valA = resources.reg[rA]
-        valB = resources.reg[rB]
-    elif(icode == 2):                           #rrmovq and cmovxx
-        valA = resources.reg[rA]
-        valB = 0
-    elif(icode == 3 and ifun == 0):             #irmovq
-        valA = resources.reg[rA]
-        valB = resources.reg[rB]
-    elif(icode == 4 and ifun == 0):             #rmmovq
-        valA = resources.reg[rA]
-        valB = resources.reg[rB]
-    elif(icode == 5 and ifun == 0):             #mrmovq
-        valA = resources.reg[rA]
-        valB = resources.reg[rB]
-    elif(icode == 10 and ifun == 0):            #pushq
-        valA = resources.reg[rA]
-        valB = resources.reg[4]
-    elif(icode == 11 and ifun == 0):            #popq
-        valA = resources.reg[4]
-        valB = resources.reg[4]
-    elif(icode == 7):                           #jxx
-        valA = 0
-        valB = 0
-    elif(icode == 8):                           #call
-        valA = 0
-        valB = resources.reg[4]
-    elif(icode == 9):                           #ret
-        valA = resources.reg[4]
-        valB = resources.reg[4]
-    elif(icode == 1):                           #nop
-        valA = 0
-        valB = 0
-    return valA, valB
+def Decode(pre_signals):
+
+    (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC) = pre_signals
+
+    if(IF_icode == 6):                             #OPq
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = resources.reg[IF_rB]
+    elif(IF_icode == 2):                           #rrmovq and cmovxx
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = 0
+    elif(IF_icode == 3 and IF_ifun == 0):             #irmovq
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = resources.reg[IF_rB]
+    elif(IF_icode == 4 and IF_ifun == 0):             #rmmovq
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = resources.reg[IF_rB]
+    elif(IF_icode == 5 and IF_ifun == 0):             #mrmovq
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = resources.reg[IF_rB]
+    elif(IF_icode == 10 and IF_ifun == 0):            #pushq
+        ID_valA = resources.reg[IF_rA]
+        ID_valB = resources.reg[4]
+    elif(IF_icode == 11 and IF_ifun == 0):            #popq
+        ID_valA = resources.reg[4]
+        ID_valB = resources.reg[4]
+    elif(IF_icode == 7):                           #jxx
+        ID_valA = 0
+        ID_valB = 0
+    elif(IF_icode == 8):                           #call
+        ID_valA = 0
+        ID_valB = resources.reg[4]
+    elif(IF_icode == 9):                           #ret
+        ID_valA = resources.reg[4]
+        ID_valB = resources.reg[4]
+    elif(IF_icode == 1):                           #nop
+        ID_valA = 0
+        ID_valB = 0
+    ID_icode = IF_icode; ID_ifun = IF_ifun; ID_valP = IF_valP; ID_valC = IF_valC; ID_rB = IF_rB; ID_rA = IF_rA
+    return (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA)
 #返回值均为int类型
 
-def Execute(valA, valB, icode, ifun, valC):
-    if(icode == 6):                             #OPq
-        op = resources.OP[ifun]
-        valE = eval( str(valB) + op + str(valA) )
-        set_CC(valE)
-        Cnd = 0
-    elif(icode == 2):                           #rrmovq and cmovxx
-        valE = 0 + valA
-        Cnd = Cond(ifun)
-    elif(icode == 3 and ifun == 0):             #irmovq
-        valE = 0 + valC
-        Cnd = 0
-    elif(icode == 4 and ifun == 0):             #rmmovq
-        valE = valB + valC
-        Cnd = 0
-    elif(icode == 5 and ifun == 0):             #mrmovq
-        valE = valB + valC
-        Cnd = 0          
-    elif(icode == 10 and ifun == 0):            #pushq
-        valE = valB - 8
-        Cnd = 0
-    elif(icode == 11 and ifun == 0):            #popq
-        valE = valB + 8
-        Cnd = 0
-    elif(icode == 7):                           #jxx
-        valE = 0
-        Cnd = Cond(ifun)
-    elif(icode == 8):                           #call
-        valE = valB - 8
-        Cnd = 0
-    elif(icode == 9):                           #ret
-        valE = valB + 8
-        Cnd = 0
-    elif(icode == 1):                           #nop
-        valE = 0
-        Cnd = 0
-    return valE, Cnd
+def Execute(pre_signals):
+    (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA) = pre_signals
 
-def Memory(valA, valE, icode, ifun, valP):
-    if(icode == 6):                             #OPq
-        valM = 0
-    elif(icode == 2):                           #rrmovq and cmovxx
-        valM = 0
-    elif(icode == 3 and ifun == 0):             #irmovq
-        valM = 0
-    elif(icode == 4 and ifun == 0):             #rmmovq
-        Store_Memory(valE, 8, valA)
-        valM = 0
-    elif(icode == 5 and ifun == 0):             #mrmovq
-        valM = hex_2_dec(Load_Memory(valE, 8))
-    elif(icode == 10 and ifun == 0):            #pushq
-        Store_Memory(valE, 8, valA)
-        valM = 0
-    elif(icode == 11 and ifun == 0):            #popq
-        valM = hex_2_dec(Load_Memory(valA, 8))
-    elif(icode == 7):                           #jxx
-        valM = 0
-    elif(icode == 8):                           #call
-        Store_Memory(valE, 8, valP)
-        valM = 0
-    elif(icode == 9):                           #ret
-        valM = hex_2_dec(Load_Memory(valA, 8))
-    elif(icode == 1):                           #nop
-        valM = 0
-    return valM
+    if(ID_icode == 6):                             #OPq
+        op = resources.OP[ID_ifun]
+        EX_valE = eval( str(ID_valB) + op + str(ID_valA) )
+        set_CC(EX_valE)
+        EX_Cnd = 0
+    elif(ID_icode == 2):                           #rrmovq and cmovxx
+        EX_valE = 0 + ID_valA
+        EX_Cnd = Cond(ID_ifun)
+    elif(ID_icode == 3 and ID_ifun == 0):             #irmovq
+        EX_valE = 0 + ID_valC
+        EX_Cnd = 0
+    elif(ID_icode == 4 and ID_ifun == 0):             #rmmovq
+        EX_valE = ID_valB + ID_valC
+        EX_Cnd = 0
+    elif(ID_icode == 5 and ID_ifun == 0):             #mrmovq
+        EX_valE = ID_valB + ID_valC
+        EX_Cnd = 0          
+    elif(ID_icode == 10 and ID_ifun == 0):            #pushq
+        EX_valE = ID_valB - 8
+        EX_Cnd = 0
+    elif(ID_icode == 11 and ID_ifun == 0):            #popq
+        EX_valE = ID_valB + 8
+        EX_Cnd = 0
+    elif(ID_icode == 7):                           #jxx
+        EX_valE = 0
+        EX_Cnd = Cond(ID_ifun)
+    elif(ID_icode == 8):                           #call
+        EX_valE = ID_valB - 8
+        EX_Cnd = 0
+    elif(ID_icode == 9):                           #ret
+        EX_valE = ID_valB + 8
+        EX_Cnd = 0
+    elif(ID_icode == 1):                           #nop
+        EX_valE = 0
+        EX_Cnd = 0
 
-def WriteBack(rB, valE, icode, ifun, valM, rA, Cnd):          
-    if(icode == 6):                             #OPq
-        resources.reg[rB] = valE
-    elif(icode == 2):                           #rrmovq and cmovxx
-        if(Cnd == 1):
-            resources.reg[rB] = valE
-    elif(icode == 3 and ifun == 0):             #irmovq
-        resources.reg[rB] = valE
-    elif(icode == 4 and ifun == 0):             #rmmovq
+    EX_valP = ID_valP; EX_valC = ID_valC; EX_icode = ID_icode; EX_ifun = ID_ifun; EX_valA = ID_valA; EX_rB = ID_rB; EX_rA = ID_rA
+    return (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA)
+
+def Memory(pre_signals):
+    (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA) = pre_signals
+    if(EX_icode == 6):                             #OPq
+        MEM_valM = 0
+    elif(EX_icode == 2):                           #rrmovq and cmovxx
+        MEM_valM = 0
+    elif(EX_icode == 3 and EX_ifun == 0):             #irmovq
+        MEM_valM = 0
+    elif(EX_icode == 4 and EX_ifun == 0):             #rmmovq
+        Store_Memory(EX_valE, 8, EX_valA)
+        MEM_valM = 0
+    elif(EX_icode == 5 and EX_ifun == 0):             #mrmovq
+        MEM_valM = hex_2_dec(Load_Memory(EX_valE, 8))
+    elif(EX_icode == 10 and EX_ifun == 0):            #pushq
+        Store_Memory(EX_valE, 8, EX_valA)
+        MEM_valM = 0
+    elif(EX_icode == 11 and EX_ifun == 0):            #popq
+        MEM_valM = hex_2_dec(Load_Memory(EX_valA, 8))
+    elif(EX_icode == 7):                           #jxx
+        MEM_valM = 0
+    elif(EX_icode == 8):                           #call
+        Store_Memory(EX_valE, 8, EX_valP)
+        MEM_valM = 0
+    elif(EX_icode == 9):                           #ret
+        MEM_valM = hex_2_dec(Load_Memory(EX_valA, 8))
+    elif(EX_icode == 1):                           #nop
+        MEM_valM = 0
+    MEM_valP = EX_valP; MEM_Cnd = EX_Cnd; MEM_valC = EX_valC; MEM_icode = EX_icode; MEM_rB = EX_rB; MEM_valE = EX_valE; MEM_ifun = EX_ifun; MEM_rA = EX_rA
+    return (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA)
+
+def WriteBack(pre_signals):     
+    (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA) = pre_signals
+    if(MEM_icode == 6):                             #OPq
+        resources.reg[MEM_rB] = MEM_valE
+    elif(MEM_icode == 2):                           #rrmovq and cmovxx
+        if(MEM_Cnd == 1):
+            resources.reg[MEM_rB] = MEM_valE
+    elif(MEM_icode == 3 and MEM_ifun == 0):             #irmovq
+        resources.reg[MEM_rB] = MEM_valE
+    elif(MEM_icode == 4 and MEM_ifun == 0):             #rmmovq
         pass
-    elif(icode == 5 and ifun == 0):             #mrmovq
-        resources.reg[rA] = valM
-    elif(icode == 10 and ifun == 0):            #pushq
-        resources.reg[4] = valE
-    elif(icode == 11 and ifun == 0):            #popq
-        resources.reg[4] = valE
-        resources.reg[rA] = valM  
-    elif(icode == 7):                           #jxx
+    elif(MEM_icode == 5 and MEM_ifun == 0):             #mrmovq
+        resources.reg[MEM_rA] = MEM_valM
+    elif(MEM_icode == 10 and MEM_ifun == 0):            #pushq
+        resources.reg[4] = MEM_valE
+    elif(MEM_icode == 11 and MEM_ifun == 0):            #popq
+        resources.reg[4] = MEM_valE
+        resources.reg[MEM_rA] = MEM_valM  
+    elif(MEM_icode == 7):                           #jxx
         pass
-    elif(icode == 8):                           #call
-        resources.reg[4] = valE
-    elif(icode == 9):                           #ret
-        resources.reg[4] = valE
-    elif(icode == 1):                           #nop
+    elif(MEM_icode == 8):                           #call
+        resources.reg[4] = MEM_valE
+    elif(MEM_icode == 9):                           #ret
+        resources.reg[4] = MEM_valE
+    elif(MEM_icode == 1):                           #nop
         pass
     return
 
-def Compute_Next_PC(valP, Cnd, valC, icode, valM):
-    if(icode == 7):                            #jxx
-        if(Cnd == 1):
-            resources.PC =  valC
-        else:
-            resources.PC = valP
-    elif(icode == 9):                           #ret
-        resources.PC = valM
-    else:
-        resources.PC = valP
-    return resources.PC
+
 
 print("running")
