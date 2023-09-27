@@ -1,0 +1,11 @@
+memory_initialization_radix = 16; 
+memory_initialization_vector = 
+30f11000000000000000,		irmovq 16,%rcx
+2012,				rrmovq %rcx,%rdx
+10,				nop
+10,				nop
+10,				nop
+10,				nop
+10,				nop
+10;				nop
+
