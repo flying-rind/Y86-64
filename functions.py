@@ -1,14 +1,22 @@
 import resources
+import sys
 
 #从address处开始，取出numbers_of_bytes个字节,返回一个字符串
-def Load_Memory(address, number_of_bytes):
+def Load_Data_Memory(address, number_of_bytes):
     a = ''
     for i in range(0, number_of_bytes):
-        a += resources.mem[address + i]
+        a += resources.Dmem[address + i]
     return a
 
+#从address处开始，取出numbers_of_bytes个字节,返回一个字符串
+def Load_Inst_Memory(address, number_of_bytes):
+    a = ''
+    for i in range(0, number_of_bytes):
+        a += resources.Imem[address + i]
+    return a
+ 
 #从address处开始，将val的number_of_bytes个字节写入内存
-def Store_Memory(address, number_of_bytes, val):
+def Store_Data_Memory(address, number_of_bytes, val):
 
     if(address >= 1024):    #非法地址
         resources.stat = 3
@@ -21,7 +29,7 @@ def Store_Memory(address, number_of_bytes, val):
         #print(val)
     #注意小端格式
     for i in range(0, 8):
-        resources.mem[address + i] = val[14 - 2*i] + val[15 - 2*i]
+        resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
 
 
 #十六进制转十进制,注意小端格式转换
@@ -86,12 +94,12 @@ def Compute_Next_PC(pre_signals):
         PC = pre_valP
     return PC
 
-# 上个周期的控制信号
+# 输入为上个周期的控制信号
 def Fetch(pre_signals):
     # 首先计算PC
     IF_PC = Compute_Next_PC(pre_signals)
 
-    icode_ifun = Load_Memory(IF_PC, 1)
+    icode_ifun = Load_Inst_Memory(IF_PC, 1)
     IF_icode = hex_2_dec(icode_ifun[0])
     IF_ifun = hex_2_dec(icode_ifun[1])
 
@@ -106,7 +114,7 @@ def Fetch(pre_signals):
             resources.stat = 2
         return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC)
 
-    rA_rB = Load_Memory(IF_PC+1, 1)
+    rA_rB = Load_Inst_Memory(IF_PC+1, 1)
     IF_rA = hex_2_dec(rA_rB[0])
     IF_rB = hex_2_dec(rA_rB[1])    
     if(IF_icode == 6):                             #OPq
@@ -116,13 +124,13 @@ def Fetch(pre_signals):
         IF_valP = IF_PC + 2
         IF_valC = 0
     elif(IF_icode == 3 and IF_ifun == 0):             #irmovq
-        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))
+        IF_valC = hex_2_dec(Load_Inst_Memory(IF_PC+2, 8))
         IF_valP = IF_PC + 10
     elif(IF_icode == 4 and IF_ifun == 0):             #rmmovq
-        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))
+        IF_valC = hex_2_dec(Load_Inst_Memory(IF_PC+2, 8))
         IF_valP = IF_PC + 10
     elif(IF_icode == 5 and IF_ifun == 0):             #mrmovq
-        IF_valC = hex_2_dec(Load_Memory(IF_PC+2, 8))  
+        IF_valC = hex_2_dec(Load_Inst_Memory(IF_PC+2, 8))  
         IF_valP = IF_PC + 10
     elif(IF_icode == 10 and IF_ifun == 0):            #pushq
         IF_valP = IF_PC + 2
@@ -132,15 +140,21 @@ def Fetch(pre_signals):
         IF_valC = 0
     elif(IF_icode == 7):                           #jxx
         IF_valP = IF_PC + 9
-        IF_valC = hex_2_dec(Load_Memory(IF_PC + 1, 8))
+        IF_valC = hex_2_dec(Load_Inst_Memory(IF_PC + 1, 8))
     elif(IF_icode == 8):                           #call
-        IF_valC = hex_2_dec(Load_Memory(IF_PC + 1, 8))
+        IF_valC = hex_2_dec(Load_Inst_Memory(IF_PC + 1, 8))
         IF_valP = IF_PC + 9
     elif(IF_icode == 9):                           #ret
         IF_valP = IF_PC + 1
         IF_valC = 0
+
+    # 未知指令，报错提醒
+    else:
+        print("Fetching error: invalid instruction, exit now")
+        sys.exit(0)
+    #返回值类型均为int
     return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC)
-#返回值类型均为int
+
 
 def Decode(pre_signals):
 
@@ -182,6 +196,10 @@ def Decode(pre_signals):
     elif(IF_icode == 1):                           #nop
         ID_valA = 0
         ID_valB = 0
+    # 未知指令，报错提醒
+    else:
+        print("Decoding error: invalid instruction, exit now")
+        sys.exit(0)
     ID_icode = IF_icode; ID_ifun = IF_ifun; ID_valP = IF_valP; ID_valC = IF_valC; ID_rB = IF_rB; ID_rA = IF_rA
     return (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA)
 #返回值均为int类型
@@ -227,7 +245,10 @@ def Execute(pre_signals):
     elif(ID_icode == 1):                           #nop
         EX_valE = 0
         EX_Cnd = 0
-
+    # 未知指令，报错提醒
+    else:
+        print("Executing error: invalid instruction, exit now")
+        sys.exit(0)
     EX_valP = ID_valP; EX_valC = ID_valC; EX_icode = ID_icode; EX_ifun = ID_ifun; EX_valA = ID_valA; EX_rB = ID_rB; EX_rA = ID_rA
     return (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA)
 
@@ -242,24 +263,28 @@ def Memory(pre_signals):
     elif(EX_icode == 3 and EX_ifun == 0):             #irmovq
         MEM_valM = 0
     elif(EX_icode == 4 and EX_ifun == 0):             #rmmovq
-        Store_Memory(EX_valE, 8, EX_valA)
+        Store_Data_Memory(EX_valE, 8, EX_valA)
         MEM_valM = 0
     elif(EX_icode == 5 and EX_ifun == 0):             #mrmovq
-        MEM_valM = hex_2_dec(Load_Memory(EX_valE, 8))
+        MEM_valM = hex_2_dec(Load_Data_Memory(EX_valE, 8))
     elif(EX_icode == 10 and EX_ifun == 0):            #pushq
-        Store_Memory(EX_valE, 8, EX_valA)
+        Store_Data_Memory(EX_valE, 8, EX_valA)
         MEM_valM = 0
     elif(EX_icode == 11 and EX_ifun == 0):            #popq
-        MEM_valM = hex_2_dec(Load_Memory(EX_valA, 8))
+        MEM_valM = hex_2_dec(Load_Data_Memory(EX_valA, 8))
     elif(EX_icode == 7):                           #jxx
         MEM_valM = 0
     elif(EX_icode == 8):                           #call
-        Store_Memory(EX_valE, 8, EX_valP)
+        Store_Data_Memory(EX_valE, 8, EX_valP)
         MEM_valM = 0
     elif(EX_icode == 9):                           #ret
-        MEM_valM = hex_2_dec(Load_Memory(EX_valA, 8))
+        MEM_valM = hex_2_dec(Load_Data_Memory(EX_valA, 8))
     elif(EX_icode == 1):                           #nop
         MEM_valM = 0
+    # 未知指令，报错提醒
+    else:
+        print("Memorying error: invalid instruction, exit now")
+        sys.exit(0)
     MEM_valP = EX_valP; MEM_Cnd = EX_Cnd; MEM_valC = EX_valC; MEM_icode = EX_icode; MEM_rB = EX_rB; MEM_valE = EX_valE; MEM_ifun = EX_ifun; MEM_rA = EX_rA
     return (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA)
 
@@ -291,6 +316,10 @@ def WriteBack(pre_signals):
         resources.reg[4] = MEM_valE
     elif(MEM_icode == 1):                           #nop
         pass
+    # 未知指令，报错提醒
+    else:
+        print("Writing back error: invalid instruction, exit now")
+        sys.exit(0)
     return
 
 
