@@ -84,12 +84,14 @@ def Cond(ifun):
 # 注意接受IF_stall信号，若为1，则阻塞PC值不变
 def Compute_Next_PC(pre_signals, IF_stall):
     (pre_valP, pre_Cnd, pre_valC, pre_icode, pre_valM, pre_PC) = pre_signals
-    if(pre_icode == 7):                            #jxx
+    if(pre_icode == 7):                             # jxx
         if(pre_Cnd == 1):
             next_pc =  pre_valC
         else:
             next_pc = pre_valP
-    elif(pre_icode == 9):                           #ret
+    elif pre_icode == 8:                            # call
+        next_pc = pre_valC
+    elif(pre_icode == 9):                           # ret
         next_pc = pre_valM
     else:
         next_pc = pre_valP
@@ -100,18 +102,26 @@ def Compute_Next_PC(pre_signals, IF_stall):
 
 # 输入为上个周期的控制信号
 # 当IF_stall信号为1时，阻塞IF段，保持程序计数器的值不变
-def Fetch(pre_signals, IF_stall): 
+# 当IF_bubble信号为1时，下一条指令取出为nop
+def Fetch(pre_signals, IF_stall, IF_bubble): 
     # 首先计算PC
     IF_pc = Compute_Next_PC(pre_signals, IF_stall)
     icode_ifun = Load_Inst_Memory(IF_pc, 1)
     IF_icode = hex_2_dec(icode_ifun[0])
     IF_ifun = hex_2_dec(icode_ifun[1])
 
+    if IF_bubble == 1:
+        IF_icode = 1
+        IF_ifun = 0
+
+    # debug
+    print("IF_icode: %d" %IF_icode)
+
     #若为halt指令，直接返回
     if(IF_icode == 0 or IF_icode == 1 ):                             #halt or nop
         IF_ifun = 0
-        IF_rA = 0
-        IF_rB = 0
+        IF_rA = None
+        IF_rB = None
         IF_valP = IF_pc+1
         IF_valC = 0
         if(IF_icode == 0):
@@ -130,6 +140,7 @@ def Fetch(pre_signals, IF_stall):
     elif(IF_icode == 3 and IF_ifun == 0):             #irmovq
         IF_valC = hex_2_dec(Load_Inst_Memory(IF_pc+2, 8))
         IF_valP = IF_pc + 10
+        IF_rA = None
     elif(IF_icode == 4 and IF_ifun == 0):             #rmmovq
         IF_valC = hex_2_dec(Load_Inst_Memory(IF_pc+2, 8))
         IF_valP = IF_pc + 10
@@ -142,11 +153,18 @@ def Fetch(pre_signals, IF_stall):
     elif(IF_icode == 11 and IF_ifun == 0):            #popq
         IF_valP = IF_pc + 2
         IF_valC = 0
-    elif(IF_icode == 7):                           #jxx
+        IF_rB = None
+    elif(IF_icode == 7):                              #jxx
         IF_valP = IF_pc + 9
         IF_valC = hex_2_dec(Load_Inst_Memory(IF_pc + 1, 8))
+        IF_rA = None; IF_rB = None
     elif(IF_icode == 8):                           #call
         IF_valC = hex_2_dec(Load_Inst_Memory(IF_pc + 1, 8))
+        IF_rA = None; IF_rB = None
+
+        # debug
+        print("IF_valC = %d" % IF_valC)
+
         IF_valP = IF_pc + 9
     elif(IF_icode == 9):                           #ret
         IF_valP = IF_pc + 1
@@ -161,7 +179,6 @@ def Fetch(pre_signals, IF_stall):
 
 # IF_ID段的流水寄存器
 # 接受ID_stall信号时，保持当前状态不变
-# 接受ID_bubble信号时，新传输nop信号以刷下一个阶段
 # 否则将当前状态更新，输出输入
 def IF_ID(status, input, ID_stall):
     if ID_stall == 1:
@@ -177,6 +194,10 @@ def Decode(pre_signals):
 
     (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC, IF_pc) = pre_signals
     ID_icode = IF_icode; ID_ifun = IF_ifun; ID_valP = IF_valP; ID_valC = IF_valC; ID_rB = IF_rB; ID_rA = IF_rA
+
+    # debug
+    print("ID_icode: %d" %ID_icode)
+
     if(ID_icode == 6):                             #OPq
         ID_valA = resources.reg[ID_rA]
         ID_valB = resources.reg[ID_rB]
@@ -234,7 +255,7 @@ def Decode(pre_signals):
         ID_dstE = 4
     # 未知指令，报错提醒
     else:
-        print("Decoding error: invalid instruction, exit now")
+        print("Decoding error: invalid instruction icode = %d, exit now" %ID_icode)
         sys.exit(0)
     return (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA, ID_dstE, ID_dstM)
 #返回值均为int类型
@@ -250,6 +271,10 @@ def ID_EX(input, EX_bubble):
 def Execute(pre_signals):
     (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA, ID_dstE, ID_dstM) = pre_signals
     EX_valP = ID_valP; EX_valC = ID_valC; EX_icode = ID_icode; EX_ifun = ID_ifun; EX_valA = ID_valA; EX_rB = ID_rB; EX_rA = ID_rA; EX_dstE = ID_dstE; EX_dstM = ID_dstM
+
+    # debug
+    print("EX_icode: %d" %EX_icode)
+
     if(EX_icode == 6):                             #OPq
         op = resources.OP[EX_ifun]
         EX_valE = eval( str(ID_valB) + op + str(ID_valA) )
@@ -295,6 +320,10 @@ def Execute(pre_signals):
 def Memory(pre_signals):
     (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA, EX_dstE, EX_dstM) = pre_signals
     MEM_valP = EX_valP; MEM_Cnd = EX_Cnd; MEM_valC = EX_valC; MEM_icode = EX_icode; MEM_rB = EX_rB; MEM_valE = EX_valE; MEM_ifun = EX_ifun; MEM_rA = EX_rA; MEM_dstE = EX_dstE; MEM_dstM = EX_dstM
+
+    # debug
+    print("MEM_icode: %d" %MEM_icode)
+
     if(MEM_icode == 6):                             #OPq
         MEM_valM = 0
     elif(MEM_icode == 1):                           # nop
@@ -329,6 +358,10 @@ def Memory(pre_signals):
 def WriteBack(pre_signals):     
     (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA, MEM_dstE, MEM_dstM) = pre_signals
     WB_icode = MEM_icode; WB_ifun = MEM_ifun; WB_dstE = MEM_dstE; WB_dstM = MEM_dstM
+
+    # debug
+    print("WB_icode: %d" %WB_icode)
+
     if(WB_icode == 6):                             #OPq
         resources.reg[MEM_rB] = MEM_valE
     elif(WB_icode == 1):                           # nop
@@ -363,11 +396,24 @@ def WriteBack(pre_signals):
 
 # 冲突检测模块，用于产生阻塞和气泡的信号
 def Hazard_Detection(HD_signals):
-    (ID_rA, ID_rB, EX_dstM, EX_dstE, MEM_dstM, MEM_dstE, WB_dstM, WB_dstE) = HD_signals
-    ID_stall = EX_bubble = IF_stall = 0
-    if ID_rA == EX_dstM or ID_rA == EX_dstE or ID_rA == MEM_dstM or ID_rA == MEM_dstE or ID_rA == WB_dstM or ID_rA == WB_dstE and ID_rA != None:
+    (ID_rA, ID_rB, EX_dstM, EX_dstE, MEM_dstM, MEM_dstE, WB_dstM, WB_dstE, IF_icode, ID_icode, EX1_icode, EX2_icode) = HD_signals
+    ID_stall = EX_bubble = IF_stall = IF_bubble = 0
+
+    # IF_stall ID_stall EX_bubble信号处理数据冲突
+    if (ID_rA == EX_dstM or ID_rA == EX_dstE or ID_rA == MEM_dstM or ID_rA == MEM_dstE or ID_rA == WB_dstM or ID_rA == WB_dstE) and (ID_rA != None):
         ID_stall = EX_bubble = IF_stall = 1
-    if ID_rB == EX_dstM or ID_rB == EX_dstE or ID_rB == MEM_dstM or ID_rB == MEM_dstE or ID_rB == WB_dstM or ID_rB == WB_dstE and ID_rB != None:
+        # print("1")
+    if (ID_rB == EX_dstM or ID_rB == EX_dstE or ID_rB == MEM_dstM or ID_rB == MEM_dstE or ID_rB == WB_dstM or ID_rB == WB_dstE) and (ID_rB != None):
         ID_stall = EX_bubble = IF_stall = 1
-    return (IF_stall, ID_stall, EX_bubble)
+        # print("2")
+
+    # IF_bubble信号处理ret指令的控制冲突
+    if IF_icode == 9 or ID_icode == 9 or EX1_icode == 9 or EX2_icode== 9:
+        IF_bubble = 1
+
+    # IF_bubble信号同样处理jxx指令的控制冲突
+    if IF_icode == 7 or ID_icode == 7 or EX1_icode == 7 or EX2_icode == 7:
+        IF_bubble = 1 
+
+    return (IF_stall, ID_stall, EX_bubble, IF_bubble)
 print("running")        
