@@ -82,7 +82,7 @@ def Cond(ifun):
 
 # 使用上一个周期的控制信号，计算本周期PC的值
 # 注意接受IF_stall信号，若为1，则阻塞PC值不变
-def Compute_Next_PC(pre_signals, IF_stall):
+def Compute_Next_PC(pre_signals, IF_stall, IF_bubble):
     (pre_valP, pre_Cnd, pre_valC, IF_icode, EX_icode, MEM_icode, pre_valM, pre_PC) = pre_signals
     if(EX_icode == 7):                             # jxx
         if(pre_Cnd == 1):
@@ -98,6 +98,10 @@ def Compute_Next_PC(pre_signals, IF_stall):
     # 阻塞程序计数器的值不变，仍未上个周期的PC 
     if IF_stall == 1:
         next_pc = pre_PC
+
+    # 若为-1，表示是我们插入的nop指令
+    if IF_bubble == 1:
+        next_pc = pre_PC
     return next_pc
 
 # 输入为上个周期的控制信号
@@ -105,9 +109,9 @@ def Compute_Next_PC(pre_signals, IF_stall):
 # 当IF_bubble信号为1时，下一条指令取出为nop
 def Fetch(pre_signals, IF_stall, IF_bubble): 
     # 首先计算PC
-    IF_pc = Compute_Next_PC(pre_signals, IF_stall)
+    IF_pc = Compute_Next_PC(pre_signals, IF_stall, IF_bubble)
     # debug
-    # print("IF_pc = %d" %IF_pc)
+    print("IF_pc = %d" %IF_pc)
 
     icode_ifun = Load_Inst_Memory(IF_pc, 1)
     IF_icode = hex_2_dec(icode_ifun[0])
@@ -399,7 +403,7 @@ def WriteBack(pre_signals):
 
 # 冲突检测模块，用于产生阻塞和气泡的信号
 def Hazard_Detection(HD_signals):
-    (ID_rA, ID_rB, EX_dstM, EX_dstE, MEM_dstM, MEM_dstE, WB_dstM, WB_dstE, IF_icode, ID_icode, EX_icode) = HD_signals
+    (ID_rA, ID_rB, EX_dstM, EX_dstE, MEM_dstM, MEM_dstE, WB_dstM, WB_dstE, IF_icode, ID_icode, EX_icode, EX_cycles0) = HD_signals
     ID_stall = EX_bubble = IF_stall = IF_bubble = 0
 
     # IF_stall ID_stall EX_bubble信号处理数据冲突
@@ -417,6 +421,10 @@ def Hazard_Detection(HD_signals):
     # IF_bubble信号同样处理jxx指令的控制冲突
     if IF_icode == 7 or ID_icode == 7:
         IF_bubble = 1 
+
+    # IF_bubble信号同样处理EX多周期的问题
+    if EX_cycles0 > 0:
+        ID_stall = EX_bubble = IF_stall = 1
 
     return (IF_stall, ID_stall, EX_bubble, IF_bubble)
 print("running")        
