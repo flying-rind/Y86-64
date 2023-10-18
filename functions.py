@@ -17,8 +17,9 @@ def Load_Inst_Memory(address, number_of_bytes):
  
 #从address处开始，将val的number_of_bytes个字节写入内存
 def Store_Data_Memory(address, number_of_bytes, val):
-
-    if(address >= 1024):    #非法地址
+    if(address >= 4096):    #非法地址
+        # debug
+        # print("accessing illegal memory address %d" % address)
         resources.stat = 3
         return
     
@@ -111,18 +112,19 @@ def Fetch(pre_signals, IF_stall, IF_bubble):
     # 首先计算PC
     IF_pc = Compute_Next_PC(pre_signals, IF_stall, IF_bubble)
     # debug
-    print("IF_pc = %d" %IF_pc)
+    # print("IF_pc = %d" %IF_pc)
 
     icode_ifun = Load_Inst_Memory(IF_pc, 1)
     IF_icode = hex_2_dec(icode_ifun[0])
     IF_ifun = hex_2_dec(icode_ifun[1])
 
-    if IF_bubble == 1:
+    # 如果bubble信号有效，就刷新为nop指令,当stall信号和bubble信号同时生效时，采用阻塞
+    if IF_bubble == 1 and IF_stall != 1:
         IF_icode = 1
         IF_ifun = 0
 
     # debug
-    print("IF_icode: %d" %IF_icode)
+    # print("IF_icode: %d" %IF_icode)
 
     #若为halt指令，直接返回
     if(IF_icode == 0 or IF_icode == 1 ):                             #halt or nop
@@ -170,7 +172,7 @@ def Fetch(pre_signals, IF_stall, IF_bubble):
         IF_rA = 15; IF_rB = 15
 
         # debug
-        print("IF_valC = %d" % IF_valC)
+        # print("IF_valC = %d" % IF_valC)
 
         IF_valP = IF_pc + 9
     elif(IF_icode == 9):                           #ret
@@ -179,7 +181,7 @@ def Fetch(pre_signals, IF_stall, IF_bubble):
 
     # 未知指令，报错提醒
     else:
-        print("Fetching error: invalid instruction, exit now")
+        # print("Fetching error: invalid instruction, exit now")
         sys.exit(0)
     #返回值类型均为int
     return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC, IF_pc)
@@ -203,7 +205,7 @@ def Decode(pre_signals):
     ID_icode = IF_icode; ID_ifun = IF_ifun; ID_valP = IF_valP; ID_valC = IF_valC; ID_rB = IF_rB; ID_rA = IF_rA
 
     # debug
-    print("ID_icode: %d" %ID_icode)
+    # print("ID_icode: %d" %ID_icode)
 
     if(ID_icode == 6):                             #OPq
         ID_valA = resources.reg[ID_rA]
@@ -262,7 +264,7 @@ def Decode(pre_signals):
         ID_dstE = 4
     # 未知指令，报错提醒
     else:
-        print("Decoding error: invalid instruction icode = %d, exit now" %ID_icode)
+        # print("Decoding error: invalid instruction icode = %d, exit now" %ID_icode)
         sys.exit(0)
     return (ID_icode, ID_ifun, ID_valA, ID_valB, ID_valP, ID_valC, ID_rB, ID_rA, ID_dstE, ID_dstM)
 #返回值均为int类型
@@ -280,11 +282,17 @@ def Execute(pre_signals):
     EX_valP = ID_valP; EX_valC = ID_valC; EX_icode = ID_icode; EX_ifun = ID_ifun; EX_valA = ID_valA; EX_rB = ID_rB; EX_rA = ID_rA; EX_dstE = ID_dstE; EX_dstM = ID_dstM
 
     # debug
-    print("EX_icode: %d" %EX_icode)
+    # print("EX_icode: %d" %EX_icode)
 
     if(EX_icode == 6):                             # OPq
         op = resources.OP[EX_ifun]
         EX_valE = eval( str(ID_valB) + op + str(ID_valA) )
+
+
+        # debug
+        # print("ID_valB = %d, ID_valA = %d, EX_valE = %d" %(ID_valB, ID_valA, EX_valE))
+
+
         set_CC(EX_valE)
         EX_Cnd = 0
     elif(EX_icode == 1):                           # nop
@@ -319,7 +327,7 @@ def Execute(pre_signals):
         EX_Cnd = 0
     # 未知指令，报错提醒
     else:
-        print("Executing error: invalid instruction, exit now")
+        # print("Executing error: invalid instruction, exit now")
         sys.exit(0)
     return (EX_valE, EX_valP, EX_Cnd,  EX_valC, EX_icode, EX_ifun, EX_valA, EX_rB, EX_rA, EX_dstE, EX_dstM)
 
@@ -329,7 +337,7 @@ def Memory(pre_signals):
     MEM_valP = EX_valP; MEM_Cnd = EX_Cnd; MEM_valC = EX_valC; MEM_icode = EX_icode; MEM_rB = EX_rB; MEM_valE = EX_valE; MEM_ifun = EX_ifun; MEM_rA = EX_rA; MEM_dstE = EX_dstE; MEM_dstM = EX_dstM
 
     # debug
-    print("MEM_icode: %d" %MEM_icode)
+    # print("MEM_icode: %d" %MEM_icode)
 
     if(MEM_icode == 6):                             #OPq
         MEM_valM = 0
@@ -358,7 +366,7 @@ def Memory(pre_signals):
         MEM_valM = hex_2_dec(Load_Data_Memory(EX_valA, 8))
     # 未知指令，报错提醒
     else:
-        print("Memorying error: invalid instruction, exit now")
+        # print("Memorying error: invalid instruction, exit now")
         sys.exit(0)
     return (MEM_valP, MEM_Cnd, MEM_valC, MEM_icode, MEM_valM, MEM_rB, MEM_valE, MEM_ifun, MEM_rA, MEM_dstE, MEM_dstM)
 
@@ -367,9 +375,14 @@ def WriteBack(pre_signals):
     WB_icode = MEM_icode; WB_ifun = MEM_ifun; WB_dstE = MEM_dstE; WB_dstM = MEM_dstM
 
     # debug
-    print("WB_icode: %d" %WB_icode)
+    # print("WB_icode: %d" %WB_icode)
 
     if(WB_icode == 6):                             #OPq
+
+        # debug
+        # print("MEM_rB = %d, MEM_valE = %d" %(MEM_rB, MEM_valE))
+
+
         resources.reg[MEM_rB] = MEM_valE
     elif(WB_icode == 1):                           # nop
         pass
@@ -395,7 +408,7 @@ def WriteBack(pre_signals):
         resources.reg[4] = MEM_valE
     # 未知指令，报错提醒
     else:
-        print("Writing back error: invalid instruction, exit now")
+        # print("Writing back error: invalid instruction, exit now")
         sys.exit(0)
         
     return(WB_icode, WB_ifun, WB_dstE, WB_dstM)
