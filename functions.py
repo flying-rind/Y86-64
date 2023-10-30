@@ -1,18 +1,18 @@
-import resources
+import Resources
 import sys
 
 #从address处开始，取出numbers_of_bytes个字节,返回一个字符串
 def Load_Data_Memory(address, number_of_bytes):
     a = ''
     for i in range(0, number_of_bytes):
-        a += resources.Dmem[address + i]
+        a += Resources.Dmem[address + i]
     return a
 
 #从address处开始，取出numbers_of_bytes个字节,返回一个字符串
 def Load_Inst_Memory(address, number_of_bytes):
     a = ''
     for i in range(0, number_of_bytes):
-        a += resources.Imem[address + i]
+        a += Resources.Imem[address + i]
     return a
  
 #从address处开始，将val的number_of_bytes个字节写入内存
@@ -20,7 +20,7 @@ def Store_Data_Memory(address, number_of_bytes, val):
     if(address >= 4096):    #非法地址
         # debug
         # print("accessing illegal memory address %d" % address)
-        resources.stat = 3
+        Resources.stat = 3
         return
     
     val = hex(val)[2:]  #转为十六进制字符串
@@ -30,7 +30,7 @@ def Store_Data_Memory(address, number_of_bytes, val):
         #print(val)
     #注意小端格式
     for i in range(0, 8):
-        resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
+        Resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
 
 
 #十六进制转十进制,注意小端格式转换
@@ -48,17 +48,17 @@ def hex_2_dec(a):
 #设置控制码
 def set_CC(valE):
     if(valE == 0):
-        resources.ZF = 1
+        Resources.ZF = 1
     else:
-        resources.ZF = 0
+        Resources.ZF = 0
     if(valE < 0):
-        resources.SF = 1
+        Resources.SF = 1
     else:
-        resources.SF = 0
+        Resources.SF = 0
     if(valE >= pow(2, 64)):
-        resources.OF = 1
+        Resources.OF = 1
     else:
-        resources.OF = 0
+        Resources.OF = 0
     return 
 
 #判断是否跳转
@@ -66,20 +66,20 @@ def Cond(ifun):
     if(ifun == 0):
         return 1
     elif(ifun == 1):
-        return (resources.SF^resources.OF) | resources.ZF
+        return (Resources.SF^Resources.OF) | Resources.ZF
     elif(ifun == 2):
-        return resources.SF^resources.OF
+        return Resources.SF^Resources.OF
     elif(ifun == 3):
-        return resources.ZF
+        return Resources.ZF
     elif(ifun == 4):
-        if(resources.ZF == 0):
+        if(Resources.ZF == 0):
             return 1
         else:
             return 0
     elif(ifun == 5):
-        return ~(resources.SF^resources.OF)
+        return ~(Resources.SF^Resources.OF)
     elif(ifun == 6):
-        return ~(resources.SF^resources.OF)&~resources.ZF
+        return ~(Resources.SF^Resources.OF)&~Resources.ZF
 
 # 使用上一个周期的控制信号，计算本周期PC的值
 # 注意接受IF_stall信号，若为1，则阻塞PC值不变
@@ -134,7 +134,7 @@ def Fetch(pre_signals, IF_stall, IF_bubble):
         IF_valP = IF_pc+1
         IF_valC = 0
         if(IF_icode == 0):
-            resources.stat = 2
+            Resources.stat = 2
         return (IF_icode, IF_ifun, IF_rA, IF_rB, IF_valP, IF_valC, IF_pc)
 
     rA_rB = Load_Inst_Memory(IF_pc+1, 1)
@@ -208,8 +208,8 @@ def Decode(pre_signals):
     # print("ID_icode: %d" %ID_icode)
 
     if(ID_icode == 6):                             #OPq
-        ID_valA = resources.reg[ID_rA]
-        ID_valB = resources.reg[ID_rB]
+        ID_valA = Resources.reg[ID_rA]
+        ID_valB = Resources.reg[ID_rB]
         ID_dstM = 15
         ID_dstE = ID_rB
     elif(ID_icode == 1):                            # nop
@@ -218,33 +218,33 @@ def Decode(pre_signals):
         ID_dstM = 15
         ID_dstE = 15
     elif(ID_icode == 2):                           #rrmovq and cmovxx
-        ID_valA = resources.reg[ID_rA]
+        ID_valA = Resources.reg[ID_rA]
         ID_valB = 0
         ID_dstM = 15
         ID_dstE = ID_rB
     elif(ID_icode == 3 and ID_ifun == 0):             #irmovq
-        ID_valA = resources.reg[ID_rA]
-        ID_valB = resources.reg[ID_rB]
+        ID_valA = Resources.reg[ID_rA]
+        ID_valB = Resources.reg[ID_rB]
         ID_dstM = 15
         ID_dstE = ID_rB
     elif(ID_icode == 4 and ID_ifun == 0):             #rmmovq
-        ID_valA = resources.reg[ID_rA]
-        ID_valB = resources.reg[ID_rB]
+        ID_valA = Resources.reg[ID_rA]
+        ID_valB = Resources.reg[ID_rB]
         ID_dstM = 15
         ID_dstE = 15
     elif(ID_icode == 5 and ID_ifun == 0):             #mrmovq
-        ID_valA = resources.reg[ID_rA]
-        ID_valB = resources.reg[ID_rB]
+        ID_valA = Resources.reg[ID_rA]
+        ID_valB = Resources.reg[ID_rB]
         ID_dstM = ID_rA
         ID_dstE = 15
     elif(ID_icode == 10 and ID_ifun == 0):            #pushq
-        ID_valA = resources.reg[ID_rA]
-        ID_valB = resources.reg[4]
+        ID_valA = Resources.reg[ID_rA]
+        ID_valB = Resources.reg[4]
         ID_dstM = 15
         ID_dstE = 4
     elif(ID_icode == 11 and ID_ifun == 0):            #popq
-        ID_valA = resources.reg[4]
-        ID_valB = resources.reg[4]
+        ID_valA = Resources.reg[4]
+        ID_valB = Resources.reg[4]
         ID_dstM = ID_rA
         ID_dstE = 4
     elif(ID_icode == 7):                           #jxx
@@ -254,12 +254,12 @@ def Decode(pre_signals):
         ID_dstE = 15
     elif(ID_icode == 8):                           #call
         ID_valA = 0
-        ID_valB = resources.reg[4]
+        ID_valB = Resources.reg[4]
         ID_dstM = 15
         ID_dstE = 4
     elif(ID_icode == 9):                           #ret
-        ID_valA = resources.reg[4]
-        ID_valB = resources.reg[4]
+        ID_valA = Resources.reg[4]
+        ID_valB = Resources.reg[4]
         ID_dstM = 15
         ID_dstE = 4
     # 未知指令，报错提醒
@@ -285,7 +285,7 @@ def Execute(pre_signals):
     # print("EX_icode: %d" %EX_icode)
 
     if(EX_icode == 6):                             # OPq
-        op = resources.OP[EX_ifun]
+        op = Resources.OP[EX_ifun]
         EX_valE = eval( str(ID_valB) + op + str(ID_valA) )
 
 
@@ -383,29 +383,29 @@ def WriteBack(pre_signals):
         # print("MEM_rB = %d, MEM_valE = %d" %(MEM_rB, MEM_valE))
 
 
-        resources.reg[MEM_rB] = MEM_valE
+        Resources.reg[MEM_rB] = MEM_valE
     elif(WB_icode == 1):                           # nop
         pass
     elif(WB_icode == 2):                           #rrmovq and cmovxx
         if(MEM_Cnd == 1):
-            resources.reg[MEM_rB] = MEM_valE
+            Resources.reg[MEM_rB] = MEM_valE
     elif(WB_icode == 3 and WB_ifun == 0):             #irmovq
-        resources.reg[MEM_rB] = MEM_valE
+        Resources.reg[MEM_rB] = MEM_valE
     elif(WB_icode == 4 and WB_ifun == 0):             #rmmovq
         pass
     elif(WB_icode == 5 and WB_ifun == 0):             #mrmovq
-        resources.reg[MEM_rA] = MEM_valM
+        Resources.reg[MEM_rA] = MEM_valM
     elif(WB_icode == 10 and WB_ifun == 0):            #pushq
-        resources.reg[4] = MEM_valE
+        Resources.reg[4] = MEM_valE
     elif(WB_icode == 11 and WB_ifun == 0):            #popq
-        resources.reg[4] = MEM_valE
-        resources.reg[MEM_rA] = MEM_valM  
+        Resources.reg[4] = MEM_valE
+        Resources.reg[MEM_rA] = MEM_valM  
     elif(WB_icode == 7):                           #jxx
         pass
     elif(WB_icode == 8):                           #call
-        resources.reg[4] = MEM_valE
+        Resources.reg[4] = MEM_valE
     elif(WB_icode == 9):                           #ret
-        resources.reg[4] = MEM_valE
+        Resources.reg[4] = MEM_valE
     # 未知指令，报错提醒
     else:
         # print("Writing back error: invalid instruction, exit now")
