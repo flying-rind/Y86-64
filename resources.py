@@ -1,10 +1,20 @@
+'''
+Resources.py
+这个py文件中包含了CPU中的各个资源部件的定义和实现，包括了：
+1. 寄存器和状态码
+2. 主存
+3. Cache
+'''
+
 import math
 import random
 import numpy as np
 
-# 采用将指令MEM与数据MEM分离的方式来解决结构相关
-Dmem = ['00']*16384      
-Imem = ['00']*16384      
+Max_Memory = 65536
+
+# 主存大小为65536,内存地址为16位
+Dmem = np.full(Max_Memory, "00")      
+Imem = np.full(Max_Memory, "00")      
 
 # 设置寄存器初值
 reg = [0]*16        # 16通用寄存器, 15表示空寄存器
@@ -24,11 +34,12 @@ OP = {
 
 '''
 为主存增加一级Cache
-采用组相联
+采用组相联,替换策略为随机替换
+写Cache时采用写回,写不命中时采用写分配
 '''
 class Cache:
     # Cache的总大小
-    CACHE_SIZE = 8192
+    CACHE_SIZE = 4096
     # 统计总访问次数
     Access_Times_Count = 0
     # 统计失效次数
@@ -38,7 +49,7 @@ class Cache:
     Cache默认为2路组相联,块大小为16
     Cache将Data_Cache(字节为单位,每个单元存放长度为2的字符串)和Tag_Cache(每个单元存放一个int型)分离
     '''
-    def __init__(self, BLOCK_SIZE:int = 16, ASSOCIATIVITY:int = 2):
+    def __init__(self, BLOCK_SIZE:int = 8, ASSOCIATIVITY:int = 2):
         self.BLOCK_SIZE = BLOCK_SIZE
         self.ASSOCIATIVITY = ASSOCIATIVITY
         # 组数和组索引需要的位数
@@ -47,20 +58,20 @@ class Cache:
         # 块偏移需要的位数
         self.Block_Offset_Bits = int(math.log(self.BLOCK_SIZE, 2))
         # 标记需要的位数
-        self.Tag_Bits = int(math.log(self.CACHE_SIZE, 2)) - self.Block_Offset_Bits - self.Group_Index_Bits
+        self.Tag_Bits = 16 - self.Block_Offset_Bits - self.Group_Index_Bits
 
         # 分配DataCache(每行包含一个valid位和dirty位)和TagCache
         self.Data_Cache = np.full((Groups, ASSOCIATIVITY, BLOCK_SIZE+2), "00")
         self.Tag_Cache = np.full((Groups, ASSOCIATIVITY), 0, dtype = int)
 
-        print(self.Data_Cache)
+        # print(self.Data_Cache)
 
     '''
     给定一个地址,返回地址拆分后得到的
     (Tag, Group_Index, Block_Offset)
     (int, int, int)
     '''
-    def Split_Address(self, address:int):
+    def Split_Address(self, address:np.int16):
         # 计算块偏移
         mask = (1<<self.Block_Offset_Bits) - 1
         Block_Offset = address & mask
@@ -80,16 +91,16 @@ class Cache:
         return (Tag, Group_Index, Block_Offset)
     
     '''
-    给定地址,读取Cache,返回读取到的一个字节
+    给定地址,读取Cache,返回读取到的一个字节(长度为2的字符串)
     访问时更新访问总次数和失效次数
     '''
-    def Read_Cache(self, address):
+    def Read_Cache(self, address:np.int16):
         # 主存
         global Dmem
         self.Access_Times_Count += 1
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         # 遍历组内的每一行
-        for i in range(0, len(self.ASSOCIATIVITY)):
+        for i in range(0, self.ASSOCIATIVITY):
             Tag_In_Cache = self.Tag_Cache[Group_Index][i]
             Data_In_Cache = self.Data_Cache[Group_Index][i]
             # Tag匹配且valid位有效
@@ -105,9 +116,11 @@ class Cache:
 
     '''
     处理读不命中
-    访问主存，取出请求的块，若当前组有空闲行，则放入，否则需要替换一行
+    访问主存，取出请求的块
+    若当前组有空闲行，则放入，否则需要替换一行
+    注意采用写回,若替换的行Dirty,需要将其先写回主存中
     '''
-    def Handel_Read_Miss(self, address):
+    def Handle_Read_Miss(self, address:np.int16):
         global Dmem
         # 计算address在主存中的第几块
         seq = address//self.BLOCK_SIZE
@@ -138,14 +151,14 @@ class Cache:
     '''
     当行替换时,如果这个行是Dirty的,需要先将其写回主存
     '''
-    def Write_Back_To_Memory(self, address, Replaced_Line_Num):
+    def Write_Back_To_Memory(self, address:np.int16, Replaced_Line_Num):
         global Dmem
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         seq = address//self.BLOCK_SIZE
         Dmem[seq*self.BLOCK_SIZE : (seq+1)*self.BLOCK_SIZE] = self.Data_Cache[Group_Index][Replaced_Line_Num]
 
     '''
-    Cache替换策略，选出一个替换行,
+    Cache替换策略,选出一个替换行,
     目前是随机替换
     '''
     def Calc_Replaced_Line_Num(self):
@@ -156,11 +169,11 @@ class Cache:
     给定地址和一个字节,将其写入Cache中
     采用WriteBack + Write_Allocate
     '''
-    def Write_Cache(self, address, byte):
+    def Write_Cache(self, address:np.int16, byte):
         self.Access_Times_Count += 1
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         # 遍历组内的每一行
-        for i in range(0, len(self.ASSOCIATIVITY)):
+        for i in range(0, self.ASSOCIATIVITY):
             Tag_In_Cache = self.Tag_Cache[Group_Index][i]
             Data_In_Cache = self.Data_Cache[Group_Index][i]
 
@@ -179,7 +192,7 @@ class Cache:
     处理写不命中
     用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
     '''
-    def Handle_Write_Miss(self, address, byte):
+    def Handle_Write_Miss(self, address:np.int16, byte):
         global Dmem
         # 计算address在主存中的第几块
         seq = address//self.BLOCK_SIZE
@@ -209,3 +222,6 @@ class Cache:
         # 将block写入这行
         self.Data_Cache[Group_Index][Replaced_Line_Num][2:] = block
         self.Tag_Cache[Group_Index][Replaced_Line_Num] = Tag
+
+# 主存的L1Cache
+L1_Cache = Cache()

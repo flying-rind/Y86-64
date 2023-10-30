@@ -1,28 +1,44 @@
+'''
+Functions.py
+这个文件中定义了五级流水线中的流水段的功能和实现
+还包含了一些读写内存的函数接口和辅助函数
+'''
+
 import Resources
+import numpy as np
 import sys
 
-#从address处开始，取出numbers_of_bytes个字节,返回一个字符串
-def Load_Data_Memory(address, number_of_bytes):
-    a = ''
+'''
+从addrress处开始,取出numbers_of_bytes个字节,返回一个字符串
+首先访问Cache,若Miss则会访问主存
+'''
+def Load_Data_Memory(address:np.int16, number_of_bytes):
+    byte = ''
     for i in range(0, number_of_bytes):
-        a += Resources.Dmem[address + i]
-    return a
+        # 注意内存边界检查
+        if address + i > Resources.Max_Memory:
+            sys.exit("Error: address out of range")
+        byte += Resources.L1_Cache.Read_Cache(address + i)
+    return byte
 
-#从address处开始，取出numbers_of_bytes个字节,返回一个字符串
-def Load_Inst_Memory(address, number_of_bytes):
+'''
+从addrress处开始,取出numbers_of_bytes个字节,返回一个字符串
+目前没有设计ICache,直接访问Imem
+'''
+def Load_Inst_Memory(address:np.int16, number_of_bytes):
     a = ''
     for i in range(0, number_of_bytes):
+        # 注意内存边界检查
+        if address + i > Resources.Max_Memory:
+            sys.exit("Error: address out of range")
         a += Resources.Imem[address + i]
     return a
- 
-#从address处开始，将val的number_of_bytes个字节写入内存
-def Store_Data_Memory(address, number_of_bytes, val):
-    if(address >= 4096):    #非法地址
-        # debug
-        # print("accessing illegal memory address %d" % address)
-        Resources.stat = 3
-        return
-    
+
+'''
+从address处开始,将val的8个字节写入内存,
+首先写入Cache,采用写回
+'''
+def Store_Data_Memory(address:np.int16, val):
     val = hex(val)[2:]  #转为十六进制字符串
     length = len(val)
     if(length < 16):
@@ -30,7 +46,10 @@ def Store_Data_Memory(address, number_of_bytes, val):
         #print(val)
     #注意小端格式
     for i in range(0, 8):
-        Resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
+        # Resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
+        if address + i > Resources.Max_Memory:
+            sys.exit("Error: address out of range")
+        Resources.L1_Cache.Write_Cache(address + i, val[14 - 2*i] + val[15 - 2*i])
 
 
 #十六进制转十进制,注意小端格式转换
@@ -348,19 +367,19 @@ def Memory(pre_signals):
     elif(MEM_icode == 3 and MEM_ifun == 0):             #irmovq
         MEM_valM = 0
     elif(MEM_icode == 4 and MEM_ifun == 0):             #rmmovq
-        Store_Data_Memory(EX_valE, 8, EX_valA)
+        Store_Data_Memory(EX_valE, EX_valA)
         MEM_valM = 0
     elif(MEM_icode == 5 and MEM_ifun == 0):             #mrmovq
         MEM_valM = hex_2_dec(Load_Data_Memory(EX_valE, 8))
     elif(MEM_icode == 10 and MEM_ifun == 0):            #pushq
-        Store_Data_Memory(EX_valE, 8, EX_valA)
+        Store_Data_Memory(EX_valE, EX_valA)
         MEM_valM = 0
     elif(MEM_icode == 11 and MEM_ifun == 0):            #popq
         MEM_valM = hex_2_dec(Load_Data_Memory(EX_valA, 8))
     elif(MEM_icode == 7):                           #jxx
         MEM_valM = 0
     elif(MEM_icode == 8):                           #call
-        Store_Data_Memory(EX_valE, 8, EX_valP)
+        Store_Data_Memory(EX_valE, EX_valP)
         MEM_valM = 0
     elif(MEM_icode == 9):                           #ret
         MEM_valM = hex_2_dec(Load_Data_Memory(EX_valA, 8))
