@@ -247,5 +247,6 @@ while True:
 
 # print(Resources.mem)
 print(Resources.reg)
+Resources.L1_Cache.Print_Miss_Rate()
 
 

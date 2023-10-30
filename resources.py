@@ -223,5 +223,11 @@ class Cache:
         self.Data_Cache[Group_Index][Replaced_Line_Num][2:] = block
         self.Tag_Cache[Group_Index][Replaced_Line_Num] = Tag
 
+    '''
+    打印出访问Cache的总次数和命中率
+    '''
+    def Print_Miss_Rate(self):
+        print("L1_Cache:\n Total_Access Times: %d\n Miss Times: %d\nMiss Rate %f\n" \
+              %(self.Access_Times_Count, self.Miss_Times_Count, self.Miss_Times_Count/self.Access_Times_Count))
 # 主存的L1Cache
 L1_Cache = Cache()
