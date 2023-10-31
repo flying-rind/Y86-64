@@ -1,6 +1,6 @@
 '''
 Resources.py
-这个py文件中包含了CPU中的各个资源部件的定义和实现，包括了：
+这个py文件中包含了CPU中的各个资源部件的定义和实现,包括了：
 1. 寄存器和状态码
 2. 主存
 3. Cache
@@ -8,13 +8,11 @@ Resources.py
 
 import math
 import random
+import threading
 import numpy as np
-
-Max_Memory = 65536
-
-# 主存大小为65536,内存地址为16位
-Dmem = np.full(Max_Memory, "00")      
-Imem = np.full(Max_Memory, "00")      
+     
+# 主存最大容量
+Max_Memory_Size = 65536
 
 # 设置寄存器初值
 reg = [0]*16        # 16通用寄存器, 15表示空寄存器
@@ -33,17 +31,87 @@ OP = {
 }
 
 '''
+Main_Memory:主存类
+主存中以字节为单位存储,以两个十六进制字符表示一个字节,例如'0F'
+提供读写内存的接口,主存只有一个读写接口
+任意时刻读或写主存都会导致主存进入忙状态
+采用了写缓冲,当主存空闲时,写缓冲将自己的缓存内容写入主存
+'''
+class Main_Memory:
+    # 忙标记
+    Data_Busy = False
+    global Max_Memory_Size
+    # 为主存分配空间,内存地址空间为16位
+    Data_Mem = np.full(Max_Memory_Size, "00")
+    Inst_Mem = np.full(Max_Memory_Size, "00")
+    # 主存的锁,任何时刻,只有一个线程能够写或者读主存Data_Mem
+    lock = threading.Lock()
+
+    def __init__(self):
+        self.Busy = False
+
+    '''
+    数据主存读访问接口,给定起始地址和访存长度
+    给定地址返回取出的字节块(字符串)
+    访问开始时将主存设为忙状态,结束时释放忙状态
+    '''
+    def Read_Data_Memory(self, address:np.int16, len):
+        # with lock会自动申请锁和释放锁
+        # with self.lock:
+        self.Data_Busy = True
+        byte = self.Data_Mem[address:address+len]
+        self.Data_Busy = False
+        return byte
+    
+    '''
+    主存写接口
+    给定写起始地址和终止地址和写入的数据块,将数据块写入主存
+    data_block是np数组类型
+    写开始时设为忙状态,结束时释放忙状态
+    '''
+    def Write_Data_Memory(self, start_address:np.int16, data_block):
+        # with self.lock:
+        self.Data_Busy = True
+        self.Data_Mem[start_address:start_address + len(data_block)] = data_block
+        self.Data_Busy = False
+
+    '''
+    读指令Mem,给定地址,读出一个字节
+    由于目前IMem未采用Cache,直接取出
+    '''
+    def Read_Inst_Memory(self, address):
+        return self.Inst_Mem[address]
+    
+    '''
+    写指令Mem,给定地址,写入一个字节
+    由于目前IMem未采用Cache,直接写入
+    '''
+    def Write_Inst_Memory(self, address, byte):
+        self.Inst_Mem[address] = byte
+        return
+
+# 创建主存
+Memory = Main_Memory()
+
+
+'''
 为主存增加一级Cache
 采用组相联,替换策略为随机替换
 写Cache时采用写回,写不命中时采用写分配
 '''
-class Cache:
+class Data_Cache:
     # Cache的总大小
     CACHE_SIZE = 4096
     # 统计总访问次数
     Access_Times_Count = 0
     # 统计失效次数
     Miss_Times_Count = 0
+    # 写缓冲,是一个字典的列表,每个元素都是一个字典,包含address和数据块两个字段
+    Write_Buffer = []
+    # 写回线程,当主存空闲时择机将写缓冲区内的条目写回主存
+    Write_Back_Thread = None
+    # 线程开始的信号
+    Start_Working = False
     
     '''
     Cache默认为2路组相联,块大小为16
@@ -64,7 +132,16 @@ class Cache:
         self.Data_Cache = np.full((Groups, ASSOCIATIVITY, BLOCK_SIZE+2), "00")
         self.Tag_Cache = np.full((Groups, ASSOCIATIVITY), 0, dtype = int)
 
-        # print(self.Data_Cache)
+    '''
+    Get_To_Work,
+    创建线程
+    令线程开始工作,将写缓冲中的内容择机写入主存
+    '''
+    def Get_To_Work(self):
+        # 创建写回线程
+        self.Write_Back_Thread = threading.Thread(name = 'WriteBack', target = self.Write_Buffer_2_Memory)
+        self.Write_Back_Thread.start()
+
 
     '''
     给定一个地址,返回地址拆分后得到的
@@ -96,7 +173,7 @@ class Cache:
     '''
     def Read_Cache(self, address:np.int16):
         # 主存
-        global Dmem
+        global Memory
         self.Access_Times_Count += 1
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         # 遍历组内的每一行
@@ -112,21 +189,37 @@ class Cache:
         # 处理Miss的情况，从主存中取出请求的行放入Cache中
         self.Handle_Read_Miss(address)
         # 从主存中取出了相应数据，返回主存中的数据
-        return Dmem[address]
+        return Memory.Read_Data_Memory(address, 1)
 
     '''
     处理读不命中
+    注意采用写缓冲,要先访问写缓冲区中的Dirty行
     访问主存，取出请求的块
     若当前组有空闲行，则放入，否则需要替换一行
     注意采用写回,若替换的行Dirty,需要将其先写回主存中
     '''
     def Handle_Read_Miss(self, address:np.int16):
-        global Dmem
-        # 计算address在主存中的第几块
-        seq = address//self.BLOCK_SIZE
-        # 取出主存中的一块
-        block = Dmem[seq*self.BLOCK_SIZE : (seq+1)*self.BLOCK_SIZE]
+        global Memory
+        # 先查找写缓冲中的Dirty行,若找到,将Found置为True
+        Found = False
+        block = None
+        for entry in self.Write_Buffer:
+            dirty_line_address = entry['address']
+            # Tag和Index都匹配
+            if (dirty_line_address >> self.Block_Offset_Bits) == (address >> self.Block_Offset_Bits):
+                block = entry['data_block']
+                Found = True
+                break
+        
+        # 写缓冲区内没有匹配的行,这时从主存中取出数据块
+        if Found == False:
+            # 计算address在主存中的第几块
+            seq = address//self.BLOCK_SIZE
+            # 取出主存中的一块
+            block = Memory.Read_Data_Memory(seq*self.BLOCK_SIZE, self.BLOCK_SIZE)
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
+
+
         # 遍历当前组内是否有无效的行
         for i in range(0, self.ASSOCIATIVITY):
             # 存在空闲行
@@ -144,18 +237,21 @@ class Cache:
         Replaced_Line_Num = self.Calc_Replaced_Line_Num()
         # 将主存中取出的请求块写入Cache,如果这个行是Dirty的,需要先将其写回主存
         if self.Data_Cache[Group_Index][Replaced_Line_Num][1] == '01':
-            self.Write_Back_To_Memory(address, Replaced_Line_Num)
+            self.Write_To_Buffer(address, Replaced_Line_Num)
         self.Data_Cache[Group_Index][Replaced_Line_Num][2:] = block
         self.Tag_Cache[Group_Index][Replaced_Line_Num] = Tag
 
     '''
-    当行替换时,如果这个行是Dirty的,需要先将其写回主存
+    当行替换时,如果这个行是Dirty的,将这个Dirty行加入到写缓冲中
     '''
-    def Write_Back_To_Memory(self, address:np.int16, Replaced_Line_Num):
-        global Dmem
+    def Write_To_Buffer(self, address:np.int16, Replaced_Line_Num):
+        # 创建一个字典条目,将其加入写缓冲列表
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
-        seq = address//self.BLOCK_SIZE
-        Dmem[seq*self.BLOCK_SIZE : (seq+1)*self.BLOCK_SIZE] = self.Data_Cache[Group_Index][Replaced_Line_Num]
+        entry = {}
+        entry['address'] = address
+        entry['data_block'] = self.Data_Cache[Group_Index][Replaced_Line_Num]
+
+        self.Write_Buffer.append(entry)
 
     '''
     Cache替换策略,选出一个替换行,
@@ -179,6 +275,8 @@ class Cache:
 
             # Tag匹配且valid位有效,写命中
             if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
+                # 字节写入Cache
+                self.Data_Cache[Group_Index][i][2+Block_Offset] = byte
                 # 置位Dirty位
                 self.Data_Cache[Group_Index][i][1] = '01'
                 return
@@ -193,11 +291,11 @@ class Cache:
     用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
     '''
     def Handle_Write_Miss(self, address:np.int16, byte):
-        global Dmem
+        global Memory
         # 计算address在主存中的第几块
         seq = address//self.BLOCK_SIZE
         # 取出主存中的一块
-        block = Dmem[seq*self.BLOCK_SIZE : (seq+1)*self.BLOCK_SIZE]
+        block = Memory.Read_Data_Memory(seq*self.BLOCK_SIZE, self.BLOCK_SIZE)
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         # 合并取出的块和写入的字节
         block[Block_Offset] = byte
@@ -218,16 +316,40 @@ class Cache:
         Replaced_Line_Num = self.Calc_Replaced_Line_Num()
         # 如果这个行是Dirty的,需要先将其写回主存
         if self.Data_Cache[Group_Index][Replaced_Line_Num][1] == '01':
-            self.Write_Back_To_Memory(address, Replaced_Line_Num)
+            self.Write_To_Buffer(address, Replaced_Line_Num)
         # 将block写入这行
         self.Data_Cache[Group_Index][Replaced_Line_Num][2:] = block
         self.Tag_Cache[Group_Index][Replaced_Line_Num] = Tag
+        # 修改Valid位和Dirty位
+        self.Data_Cache[Group_Index][Replaced_Line_Num][0] = '01'
+        self.Data_Cache[Group_Index][Replaced_Line_Num][1] = '01'
 
+    '''
+    将Write_Buffer中的内容择机写回Data_Memory,注意主存的互斥访问
+    将这个函数作为线程函数,不断等待主存空闲时刻,将buffer内容写入 
+    '''
+    def Write_Buffer_2_Memory(self):
+        global Memory
+        while True:
+            # 写缓冲是空的
+            if len(self.Write_Buffer) == 0:
+                continue
+            # 空闲时刻
+            if Memory.Data_Busy == False:
+                # 获取锁,临界访问
+                # with Memory.lock:
+                for entry in self.Write_Buffer:
+                    address = entry['address']
+                    data_block = entry['data_block']
+                    Memory.Write_Data_Memory(address, data_block)
+                # 清空自己的写缓冲区
+                self.Write_Buffer = []
     '''
     打印出访问Cache的总次数和命中率
     '''
     def Print_Miss_Rate(self):
-        print("L1_Cache:\n Total_Access Times: %d\n Miss Times: %d\nMiss Rate %f\n" \
-              %(self.Access_Times_Count, self.Miss_Times_Count, self.Miss_Times_Count/self.Access_Times_Count))
+        print("L1_Cache:\nTotal_Access Times: %d\nMiss Times: %d\nMiss Rate %f %% \n" \
+              %(self.Access_Times_Count, self.Miss_Times_Count, self.Miss_Times_Count/self.Access_Times_Count * 100))
+
 # 主存的L1Cache
-L1_Cache = Cache()
+L1_Cache = Data_Cache()

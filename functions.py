@@ -16,7 +16,7 @@ def Load_Data_Memory(address:np.int16, number_of_bytes):
     byte = ''
     for i in range(0, number_of_bytes):
         # 注意内存边界检查
-        if address + i > Resources.Max_Memory:
+        if address + i > Resources.Max_Memory_Size:
             sys.exit("Error: address out of range")
         byte += Resources.L1_Cache.Read_Cache(address + i)
     return byte
@@ -29,9 +29,9 @@ def Load_Inst_Memory(address:np.int16, number_of_bytes):
     a = ''
     for i in range(0, number_of_bytes):
         # 注意内存边界检查
-        if address + i > Resources.Max_Memory:
+        if address + i > Resources.Max_Memory_Size:
             sys.exit("Error: address out of range")
-        a += Resources.Imem[address + i]
+        a += Resources.Memory.Read_Inst_Memory(address + i)
     return a
 
 '''
@@ -47,7 +47,7 @@ def Store_Data_Memory(address:np.int16, val):
     #注意小端格式
     for i in range(0, 8):
         # Resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
-        if address + i > Resources.Max_Memory:
+        if address + i > Resources.Max_Memory_Size:
             sys.exit("Error: address out of range")
         Resources.L1_Cache.Write_Cache(address + i, val[14 - 2*i] + val[15 - 2*i])
 

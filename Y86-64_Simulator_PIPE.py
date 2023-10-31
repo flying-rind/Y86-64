@@ -9,6 +9,7 @@ import threading
 import Resources
 import numpy as np
 
+
 # 加载器，将机器码程序加载到内存中
 def loadProgram(file):
     fil = open(file,'r')
@@ -29,10 +30,10 @@ def loadProgram(file):
             instruc = instruc.strip(',')    #指令为字符串类型,十六进制
             instruc = instruc.strip(';')
 
-            print(instruc, len(instruc))
+            # print(instruc, len(instruc))
             
             for i in range(0, len(instruc)//2):
-                Resources.Imem[address] = instruc[2*i : 2*i+2]
+                Resources.Memory.Write_Inst_Memory(address, instruc[2*i : 2*i+2])
                 address += 1
         except:
             print(f'File {file} line {lineno} has error')
@@ -41,9 +42,8 @@ def loadProgram(file):
 
 
 loadProgram("test/add_100.coe")
-print(Resources.Imem)
-print(Resources.reg)
-print(Resources.PC)
+print(Resources.Memory.Inst_Mem)
+
 
 '''
 每个周期结束时都检查CPU的状态
@@ -238,6 +238,9 @@ def cycle():
    
    return True
 
+# 令Cache的写回线程开始工作
+Resources.L1_Cache.Get_To_Work()
+
 while True:
     if not cycle():
         break
@@ -248,5 +251,3 @@ while True:
 # print(Resources.mem)
 print(Resources.reg)
 Resources.L1_Cache.Print_Miss_Rate()
-
-
