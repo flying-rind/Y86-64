@@ -41,7 +41,7 @@ def loadProgram(file):
     fil.close
 
 
-loadProgram("test/add_100.coe")
+loadProgram("test/test_speedup.coe")
 print(Resources.Memory.Inst_Mem)
 
 
@@ -56,7 +56,7 @@ def check():
       print("Error: Halt")
       return 0
    elif(Resources.stat == 3):
-      print("Error: ilegal address")
+      print("Error: illegal address")
       return 0
    elif(Resources.stat == 4):
       print("Error: ilegal instruction")
@@ -239,15 +239,15 @@ def cycle():
    return True
 
 # 令Cache的写回线程开始工作
-Resources.L1_Cache.Get_To_Work()
+# Resources.L1_Cache.Get_To_Work()
 
 while True:
     if not cycle():
         break
-    print(f"current cycle:{no}")
+   #  print(f"current cycle:{no}")
     no += 1
-    print()
+   #  print()
 
 # print(Resources.mem)
 print(Resources.reg)
-Resources.L1_Cache.Print_Miss_Rate()
+Resources.L1_Cache.Release()

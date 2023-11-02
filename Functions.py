@@ -38,7 +38,7 @@ def Load_Inst_Memory(address:np.int16, number_of_bytes):
 从address处开始,将val的8个字节写入内存,
 首先写入Cache,采用写回
 '''
-def Store_Data_Memory(address:np.int16, val):
+def Store_Data_Memory(address:np.int16, val:int):
     val = hex(val)[2:]  #转为十六进制字符串
     length = len(val)
     if(length < 16):
