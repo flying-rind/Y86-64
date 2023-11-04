@@ -90,7 +90,6 @@ class Main_Memory:
 # 创建主存
 Memory = Main_Memory()
 
-
 '''
 为主存增加一级Data_Cache
 采用组相联,替换策略为随机替换
