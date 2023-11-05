@@ -9,17 +9,14 @@ import Resources
 import numpy as np
 import sys
 
-'''
-从addrress处开始,取出numbers_of_bytes个字节,返回一个字符串
-首先访问Cache,若Miss则会访问主存
-'''
+
 def Load_Data_Memory(address:np.int16, number_of_bytes):
+    '''
+    从addrress处开始,取出numbers_of_bytes个字节,返回一个字符串
+    首先访问Cache,若Miss则会访问主存
+    '''
     byte = ''
-    for i in range(0, number_of_bytes):
-        # 注意内存边界检查
-        if address + i > Resources.Max_Memory_Size:
-            sys.exit("Error: address out of range")
-        byte += Resources.L1_Cache.Read_Cache(address + i)
+    byte += Resources.L1_Cache.Read_Cache(address)
     return byte
 
 '''
@@ -35,22 +32,21 @@ def Load_Inst_Memory(address:np.int16, number_of_bytes):
         a += Resources.Memory.Read_Inst_Memory(address + i)
     return a
 
-'''
-从address处开始,将val的8个字节写入内存,
-首先写入Cache,采用写回
-'''
+
 def Store_Data_Memory(address:np.int16, val:int):
+    '''
+    从address处开始,将val的8个字节写入内存,
+    首先写入Cache,采用写回
+    '''
     val = hex(val)[2:]  #转为十六进制字符串
     length = len(val)
     if(length < 16):
         val = '0'*(16-length) + val
         #print(val)
-    #注意小端格式
-    for i in range(0, 8):
-        # Resources.Dmem[address + i] = val[14 - 2*i] + val[15 - 2*i]
-        if address + i > Resources.Max_Memory_Size:
-            sys.exit("Error: address out of range")
-        Resources.L1_Cache.Write_Cache(address + i, val[14 - 2*i] + val[15 - 2*i])
+    # 将其转为列表，注意小端格式，最低有效位存在低地址
+    val = [val[i:i+2] for i in range(0, len(val), 2)]
+    val.reverse()
+    Resources.L1_Cache.Write_Cache(address, np.array(val))
 
 
 #十六进制转十进制,注意小端格式转换

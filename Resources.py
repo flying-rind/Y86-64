@@ -56,7 +56,7 @@ class Main_Memory:
     给定地址返回取出的字节块(字符串)
     访问开始时将主存设为忙状态,结束时释放忙状态
     '''
-    def Read_Data_Memory(self, address:np.int16, len):
+    def Read_Data_Memory(self, address:np.uint16, len):
         # 读内存不需要加锁
         byte = self.Data_Mem[address:address+len]
         return byte
@@ -67,7 +67,7 @@ class Main_Memory:
     data_block是np数组类型
     写开始时设为忙状态,结束时释放忙状态
     '''
-    def Write_Data_Memory(self, start_address:np.int16, data_block):
+    def Write_Data_Memory(self, start_address:np.uint16, data_block):
         # with lock会自动申请锁和释放锁
         with self.lock:
             self.Data_Mem[start_address:start_address + len(data_block)] = data_block
@@ -120,7 +120,7 @@ class Data_Cache:
     Cache默认为2路组相联,块大小为16
     Cache将Data_Cache(字节为单位,每个单元存放长度为2的字符串)和Tag_Cache(每个单元存放一个int型)分离
     '''
-    def __init__(self, BLOCK_SIZE:int = 16, ASSOCIATIVITY:int = 4):
+    def __init__(self, BLOCK_SIZE:int = 8, ASSOCIATIVITY:int = 4):
         self.BLOCK_SIZE = BLOCK_SIZE
         self.ASSOCIATIVITY = ASSOCIATIVITY
         # 组数和组索引需要的位数
@@ -152,7 +152,7 @@ class Data_Cache:
               %(self.Access_Times_Count, self.Miss_Times_Count))
         
         if self.Miss_Times_Count != 0:
-            print('Miss rate = %f %%' %(self.Miss_Times_Count/self.Access_Times_Count))
+            print('Miss rate = %f %%' %(self.Miss_Times_Count/self.Access_Times_Count*100))
     
 
     '''
@@ -160,7 +160,7 @@ class Data_Cache:
     (Tag, Group_Index, Block_Offset)
     (int, int, int)
     '''
-    def Split_Address(self, address:np.int16):
+    def Split_Address(self, address:np.uint16):
         # 计算块偏移
         mask = (1<<self.Block_Offset_Bits) - 1
         Block_Offset = address & mask
@@ -179,41 +179,89 @@ class Data_Cache:
 
         return (Tag, Group_Index, Block_Offset)
     
-    '''
-    给定地址,读取Cache,返回读取到的一个字节(长度为2的字符串)
-    访问时更新访问总次数和失效次数
-    '''
-    def Read_Cache(self, address:np.int16) -> str:
+    
+    def Read_Cache(self, address:np.uint16) -> str:
+        '''
+        读取Cache
+        address:np.uint16
+        str:长度为16的字符串
+
+        给定访存起始地址,返回读取到的8个字节（长度为16的字符串）
+        访问时更新访问总次数和失效次数
+        '''
         # 主存
         global Memory
+        byte = ''
         self.Access_Times_Count += 1
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
-        # 遍历组内的每一行
-        for i in range(0, self.ASSOCIATIVITY):
-            Tag_In_Cache = self.Tag_Cache[Group_Index][i]
-            Data_In_Cache = self.Data_Cache[Group_Index][i]
-            # Tag匹配且valid位有效
-            if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
-                return Data_In_Cache[2+Block_Offset]
-            
-        # 组内没有匹配的行,失效次数+1,需要访问主存,将被请求的块取出放入缓存,可能还需要替换Cache中某行
-        self.Miss_Times_Count += 1
-        # 处理Miss的情况，从主存中取出请求的行放入Cache中
-        self.Handle_Read_Miss(address)
-        # 从主存中取出了相应数据，返回主存中的数据
-        return str(Memory.Read_Data_Memory(address, 1)[0])
+        # 这时不用跨越一个行,直接取出一整行即可
+        if Block_Offset == 0:
+            # 遍历组内的每一行
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
+                # Tag匹配且valid位有效,
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
+                    byte = ''.join(Data_In_Cache[2:].tolist())
+                    return byte
+            # 读不命中,这时需要先查写缓冲,若没查到,再查主存
+            byte = self.Handle_Read_Miss(address)
+            return byte
+        # 需要读取两个行的内容
+        else:
+            # 先处理第一行
+            Found = False
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
 
-    '''
-    处理读不命中
-    注意采用写缓冲,要先访问写缓冲区中的Dirty行
-    访问主存，取出请求的块
-    若当前组有空闲行，则放入，否则需要替换一行
-    注意采用写回,若替换的行Dirty,需要将其先写回主存中
-    '''
-    def Handle_Read_Miss(self, address:np.int16):
+                # Tag匹配且valid位有效,读命中
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
+                    byte = ''.join(Data_In_Cache[2+Block_Offset:].tolist())
+                    Found = True
+                    break
+            # 第一行读不命中
+            if Found == False:
+                byte = self.Handle_Read_Miss(address)[2*Block_Offset:]
+    
+            # 再处理多余部分
+            address += (self.BLOCK_SIZE - Block_Offset)
+            # 剩余部分还有多少字节需要读
+            num_bytes = Block_Offset
+            (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
+            # 遍历组内的每一行
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
+
+                # Tag匹配且valid位有效,且这个块不是Dirty的,写命中
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
+                    byte += ''.join(Data_In_Cache[2:2+num_bytes].tolist())
+                    return byte
+            # 第二行读不命中
+            byte += self.Handle_Read_Miss(address)[:2*num_bytes]
+
+        # debug
+        # print("byte = ", byte)
+        # print("type(byte) = ", type(byte))
+        return byte
+
+    
+    def Handle_Read_Miss(self, address:np.uint16) -> str:
+        '''
+        处理读不命中
+        address:np.uint16
+        返回str,八字节的字符串
+
+        采用写缓冲,先访问写缓冲区中的Dirty行
+        若写缓冲中没有找到,访问主存，取出请求的块
+        若当前组有空闲行,则放入，否则需要替换一行
+        注意采用写回,若替换的行Dirty,需要将其先写回主存中
+        '''
+        
         # debug
         print('Read miss happened')
-
+        self.Miss_Times_Count += 1
         global Memory
         # 先查找写缓冲中的Dirty行,若找到,将Found置为True
         Found = False
@@ -246,7 +294,7 @@ class Data_Cache:
                 self.Data_Cache[Group_Index][i][2:] = block
                 # 对应的TagCache的Tag也要修改
                 self.Tag_Cache[Group_Index][i] = Tag
-                return
+                return ''.join(block.tolist())
             
         # 不存在空闲的行,这时需要在组内选出一个行来替换
         Replaced_Line_Num = self.Calc_Replaced_Line_Num()
@@ -256,11 +304,15 @@ class Data_Cache:
         self.Data_Cache[Group_Index][Replaced_Line_Num][2:] = block
         self.Tag_Cache[Group_Index][Replaced_Line_Num] = Tag
 
-    '''
-    当行替换时,如果这个行是Dirty的,将这个Dirty行加入到写缓冲中
-    采用写合并策略,如果写入的行能和以前的行合并,则进行合并
-    '''
-    def Write_To_Buffer(self, address:np.int16, Replaced_Line_Num):
+        return ''.join(block.tolist())
+
+    
+    def Write_To_Buffer(self, address:np.uint16, Replaced_Line_Num:int):
+        '''
+        当行替换时,如果这个行是Dirty的,将这个Dirty行加入到写缓冲中
+        采用写合并策略,如果写入的行能和以前的行合并,则进行合并
+        '''
+
         # 创建一个字典条目,将其加入写缓冲列表
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
 
@@ -274,7 +326,7 @@ class Data_Cache:
                 # debug
                 print("Write_Merge happened")
 
-                self.Write_Buffer[i]['data_block'][2+Block_Offset] = self.Data_Cache[Group_Index][Replaced_Line_Num][2+Block_Offset]
+                self.Write_Buffer[i]['data_block'][Block_Offset] = self.Data_Cache[Group_Index][Replaced_Line_Num][Block_Offset]
                 merge_flag = True
                 break
 
@@ -282,7 +334,7 @@ class Data_Cache:
         if merge_flag == False:
             entry = {}
             entry['address'] = address
-            entry['data_block'] = self.Data_Cache[Group_Index][Replaced_Line_Num]
+            entry['data_block'] = self.Data_Cache[Group_Index][Replaced_Line_Num][2:]
             # 写入写缓冲,注意如果写缓冲区已满,则需要阻塞,等待缓冲区空时才能写入
             while self.Write_Buffer_Length == self.WRITE_BUFFER_SIZE:
                 pass
@@ -290,52 +342,129 @@ class Data_Cache:
             with self.Write_Buffer_Lock:
                 self.Write_Buffer.append(entry)
                 self.Write_Buffer_Length += 1
-            print("Wrote to write buffer")
+            # print("Wrote to write buffer")
 
-    '''
-    Cache替换策略,选出一个替换行,
-    目前是随机替换
-    '''
+    
     def Calc_Replaced_Line_Num(self):
+        '''
+        Cache替换策略,选出一个替换行,
+        目前是随机替换
+        '''
         return random.randint(0, self.ASSOCIATIVITY-1)
 
-    '''
-    写Cache
-    给定地址和一个字节,将其写入Cache中
-    采用WriteBack + Write_Allocate
-    '''
-    def Write_Cache(self, address:np.int16, byte):
+    
+    def Write_Cache(self, address:np.uint16, byte):
+        '''
+        写Cache
+        address:np.uint16
+        byte:np长度为2的字符串数组,长度即为
+        块大小(8)
+
+        给定地址和八个字节,将其写入Cache中
+        采用WriteBack + Write_Allocate
+        '''
         # debug
         # print("Writing to cache")
 
+        # 检查byte长度是否为8（块大小）
+        if len(byte)!= 8:
+            print(len(byte))
+            exit("byte length mismatch")
+
         self.Access_Times_Count += 1
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
-        # 遍历组内的每一行
-        for i in range(0, self.ASSOCIATIVITY):
-            Tag_In_Cache = self.Tag_Cache[Group_Index][i]
-            Data_In_Cache = self.Data_Cache[Group_Index][i]
+        # 这时不用跨越一个行
+        if Block_Offset == 0:
+            # 遍历组内的每一行
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
 
-            # Tag匹配且valid位有效,写命中
-            if Tag_In_Cache == Tag and Data_In_Cache[0] == '01':
-                # 字节写入Cache
-                self.Data_Cache[Group_Index][i][2+Block_Offset] = byte
-                # 置位Dirty位
-                self.Data_Cache[Group_Index][i][1] = '01'
-                return
+                # Tag匹配且valid位有效,且这个块不是Dirty的,写命中
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '00':
+                    # 字节写入Cache
+                    self.Data_Cache[Group_Index][i][2:] = byte
+                    # 置位Dirty位
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    return
+                # 找到匹配的行,但是它是Dirty的,先将其写入写缓冲
+                elif Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '01':
+                    self.Write_To_Buffer(address, i)
+                    self.Data_Cache[Group_Index][i][2:] = byte
+                    self.Data_Cache[Group_Index][i][0] = '01'
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    return
+            # 写不命中,采用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
+            self.Handle_Write_Miss(address, byte)
+        
+        # 这时需要写入两个组,（两个组不一定在同一行）
+        else:
+            # 先处理第一行
+            Found = False
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
 
-        # 写不命中,采用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
-        self.Miss_Times_Count += 1
-        self.Handle_Write_Miss(address, byte)
-        return
+                # Tag匹配且valid位有效,且这个块不是Dirty的,写命中
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '00':
+                    # 连续字节写入Cache
+                    self.Data_Cache[Group_Index][i][2+Block_Offset:] = byte[:self.BLOCK_SIZE - Block_Offset]
+                    # 置位Dirty位
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    Found = True
+                    break
+                # 找到匹配的行,但是它是Dirty的,先将其写入写缓冲
+                elif Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '01':
+                    self.Write_To_Buffer(address, i)
+                    self.Data_Cache[Group_Index][i][2+Block_Offset:] = byte[:self.BLOCK_SIZE - Block_Offset]
+                    self.Data_Cache[Group_Index][i][0] = '01'
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    Found = True
+                    break
+            # 第一行写不命中
+            if Found == False:
+                # 写不命中,采用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
+                self.Handle_Write_Miss(address, byte[:self.BLOCK_SIZE - Block_Offset])
+
+            
+            # 再处理多余的部分
+            address += (self.BLOCK_SIZE - Block_Offset)
+            # 剩余部分还有多少字节写入下一行
+            num_bytes = Block_Offset
+            (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
+            # 遍历组内的每一行
+            for i in range(0, self.ASSOCIATIVITY):
+                Tag_In_Cache = self.Tag_Cache[Group_Index][i]
+                Data_In_Cache = self.Data_Cache[Group_Index][i]
+
+                # Tag匹配且valid位有效,且这个块不是Dirty的,写命中
+                if Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '00':
+                    # 字节写入Cache
+                    self.Data_Cache[Group_Index][i][2:2+num_bytes] = byte[self.BLOCK_SIZE-num_bytes:]
+                    # 置位Dirty位
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    return
+                # 找到匹配的行,但是它是Dirty的,先将其写入写缓冲
+                elif Tag_In_Cache == Tag and Data_In_Cache[0] == '01' and Data_In_Cache[1] == '01':
+                    self.Write_To_Buffer(address, i)
+                    self.Data_Cache[Group_Index][i][2:2+num_bytes] = byte[self.BLOCK_SIZE-num_bytes:]
+                    self.Data_Cache[Group_Index][i][0] = '01'
+                    self.Data_Cache[Group_Index][i][1] = '01'
+                    return
+            # 第二行写不命中
+            self.Handle_Write_Miss(address, byte[self.BLOCK_SIZE-num_bytes:])
     
-    '''
-    处理写不命中
-    用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
-    '''
-    def Handle_Write_Miss(self, address:np.int16, byte):
-        # debug
-        print('Write miss happened')
+    def Handle_Write_Miss(self, address:np.uint16, byte):
+        '''
+        处理写不命中
+        address:np.uint16
+        byte:np长度为2的字符串的数组,长度不确定,
+        用写分配,先将主存中的整个数据块取出,合并后写入到Cache中
+        '''
 
+        # debug
+        # print('Write miss happened')
+        self.Miss_Times_Count += 1
         global Memory
         # 计算address在主存中的第几块
         seq = address//self.BLOCK_SIZE
@@ -343,7 +472,7 @@ class Data_Cache:
         block = Memory.Read_Data_Memory(seq*self.BLOCK_SIZE, self.BLOCK_SIZE)
         (Tag, Group_Index, Block_Offset) = self.Split_Address(address)
         # 合并取出的块和写入的字节
-        block[Block_Offset] = byte
+        block[0:len(byte)] = byte
 
         # 遍历当前组内是否有无效的行
         for i in range(0, self.ASSOCIATIVITY):
@@ -379,16 +508,16 @@ class Data_Cache:
             # 注意回收线程
             if self.Terminate == True:
                 return
-            # 写缓冲是空的
+            # 我们让写缓冲满时才写入
             time.sleep(0.5)
-            if len(self.Write_Buffer) == 0:
+            if len(self.Write_Buffer) != self.WRITE_BUFFER_SIZE:
                 continue
             # 由于Write_Data_Memory函数中会加锁,这里不需要显式地加锁
             for entry in self.Write_Buffer:
                 address = entry['address']
                 data_block = entry['data_block']
                 Memory.Write_Data_Memory(address, data_block)
-            print('Wrote write buffer to main memory')
+            # print('Wrote write buffer to main memory')
             # 清空自己的写缓冲区,注意需要加锁
             with self.Write_Buffer_Lock:
                 self.Write_Buffer = []
