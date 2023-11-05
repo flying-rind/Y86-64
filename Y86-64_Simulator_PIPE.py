@@ -237,16 +237,12 @@ def cycle():
 
    if check() == False:
       return False
-   
    return True
-
-# 令Cache的写回线程开始工作
-# Resources.L1_Cache.Get_To_Work()
 
 while True:
     if not cycle():
         break
-   #  print(f"current cycle:{no}")
+    print(f"current cycle:{no}")
     no += 1
    #  print()
 
