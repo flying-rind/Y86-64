@@ -125,7 +125,7 @@ class Data_Cache:
     Terminate = False
     
     
-    def __init__(self, BLOCK_SIZE:int = 8, ASSOCIATIVITY:int = 4):
+    def __init__(self, BLOCK_SIZE:int = 8, ASSOCIATIVITY:int = 16):
         '''
         Cache默认为2路组相联,块大小为16
         Cache将Data_Cache(字节为单位,每个单元存放长度为2的字符串)和Tag_Cache(每个单元存放一个int型)分离
